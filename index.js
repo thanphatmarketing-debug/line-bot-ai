@@ -1,3 +1,4 @@
+process.env.NODE_OPTIONS = '--no-experimental-fetch';
 const express = require('express');
 const line = require('@line/bot-sdk');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -17,9 +18,13 @@ const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY,
 });
 
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
+app.post('/webhook', express.json(), async (req, res) => {
+  const signature = req.headers['x-line-signature'];
+  if (!line.validateSignature(JSON.stringify(req.body), lineConfig.channelSecret, signature)) {
+    return res.status(403).send('Invalid signature');
+  }
   res.json({ status: 'ok' });
-  const events = req.body.events;
+  const events = req.body.events || [];
   for (const event of events) {
     if (event.type === 'message' && event.message.type === 'text') {
       await handleMessage(event);
