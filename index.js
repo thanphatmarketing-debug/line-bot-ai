@@ -4,39 +4,44 @@ const crypto = require('crypto');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
-
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_SECRET = process.env.LINE_CHANNEL_SECRET;
-const CLAUDE_KEY = process.env.CLAUDE_API_KEY;
+const anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
 
-const anthropic = new Anthropic({ apiKey: CLAUDE_KEY });
+const SYSTEM_PROMPT = [
+  'You are a business analyst assistant for Thanpat Co., Ltd.',
+  'Business: home construction, home design, interior design, built-in furniture, electrical systems, renovation.',
+  'Service area: Mae Sai, Mae Chan, Mueang Chiang Rai, Chiang Saen (Chiang Rai province only).',
+  'Target customers: landowners, expanding families, business owners, people returning to their hometown, real estate investors, budget 1.5-5 million baht+.',
+  'Context: flood issues in Mae Sai, border economy, customers want homes that look expensive but are worth the price.',
+  '',
+  'Always respond in Thai language using this format:',
+  '\u{1F4CD} สรุปสถานการณ์',
+  '\u{1F4A1} Insight สำคัญ',
+  '\u{1F3AF} โอกาสสำหรับฐานปัตย์',
+  '⚡ สิ่งที่ควรทำทันที',
+  '',
+  'Keep answers concise and practical.'
+].join('\n');
 
 app.use(express.json());
 
 app.post('/webhook', (req, res) => {
-  const body = JSON.stringify(req.body);
   const sig = req.headers['x-line-signature'];
-  const hash = crypto.createHmac('sha256', LINE_SECRET).update(body).digest('base64');
+  const hash = crypto.createHmac('sha256', LINE_SECRET).update(JSON.stringify(req.body)).digest('base64');
   if (hash !== sig) return res.status(403).send('Invalid signature');
-
   res.json({ status: 'ok' });
-
-  const events = req.body.events || [];
-  for (const event of events) {
+  (req.body.events || []).forEach(event => {
     if (event.type === 'message' && event.message.type === 'text') {
       handleMessage(event).catch(console.error);
     }
-  }
+  });
 });
 
 async function sendLine(userId, text) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({
-      to: userId,
-      messages: [{ type: 'text', text: text }]
-    });
-    const buf = Buffer.from(payload, 'utf8');
-    const options = {
+    const buf = Buffer.from(JSON.stringify({ to: userId, messages: [{ type: 'text', text }] }), 'utf8');
+    const req = https.request({
       hostname: 'api.line.me',
       path: '/v2/bot/message/push',
       method: 'POST',
@@ -45,12 +50,7 @@ async function sendLine(userId, text) {
         'Content-Type': 'application/json; charset=UTF-8',
         'Content-Length': buf.length
       }
-    };
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => resolve(data));
-    });
+    }, res => { res.resume(); res.on('end', resolve); });
     req.on('error', reject);
     req.write(buf);
     req.end();
@@ -58,38 +58,19 @@ async function sendLine(userId, text) {
 }
 
 async function handleMessage(event) {
-  const userMessage = event.message.text;
   const userId = event.source.userId;
-
-  await sendLine(userId, '๐” เธเธณเธฅเธฑเธเธงเธดเน€เธเธฃเธฒเธฐเธซเน... เธฃเธญเธชเธฑเธเธเธฃเธนเนเธเธฃเธฑเธ');
-
-  const response = await anthropic.messages.create({
+  const userMessage = event.message.text;
+  await sendLine(userId, '\u{1F50D} กำลังวิเคราะห์... รอสักครู่ครับ');
+  const resp = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 2000,
-    system: `เธเธธเธ“เธเธทเธญเธเธนเนเธเนเธงเธขเธงเธดเน€เธเธฃเธฒเธฐเธซเนเธเธธเธฃเธเธดเธเธชเธณเธซเธฃเธฑเธเธเธฃเธดเธฉเธฑเธ—เธเธฒเธเธเธฑเธ•เธขเน เธเธณเธเธฑเธ”
-เธเธธเธฃเธเธดเธ: เธฃเธฑเธเธชเธฃเนเธฒเธเธเนเธฒเธ เธญเธญเธเนเธเธเธเนเธฒเธ Interior Design Built-in Furniture เธเธฒเธเธฃเธฐเธเธเนเธเธเนเธฒ Renovation
-เธเธทเนเธเธ—เธตเน: เนเธกเนเธชเธฒเธข เนเธกเนเธเธฑเธ เน€เธกเธทเธญเธเน€เธเธตเธขเธเธฃเธฒเธข เน€เธเธตเธขเธเนเธชเธ (เธเธฑเธเธซเธงเธฑเธ”เน€เธเธตเธขเธเธฃเธฒเธขเน€เธ—เนเธฒเธเธฑเนเธ)
-เธฅเธนเธเธเนเธฒ: เน€เธเนเธฒเธเธญเธเธ—เธตเนเธ”เธดเธ เธเธฃเธญเธเธเธฃเธฑเธงเธเธขเธฒเธข เน€เธเนเธฒเธเธญเธเธเธธเธฃเธเธดเธ เธเธ 1.5-5 เธฅเนเธฒเธเธเธฒเธ—+
-เธเธฃเธดเธเธ—: เธเธฑเธเธซเธฒเธเนเธณเธ—เนเธงเธกเนเธกเนเธชเธฒเธข เน€เธจเธฃเธฉเธเธเธดเธเธเธฒเธขเนเธ”เธ เธฅเธนเธเธเนเธฒเธ•เนเธญเธเธเธฒเธฃเธเนเธฒเธเธ”เธนเนเธเธเนเธ•เนเธเธธเนเธก
-
-เธ•เธญเธเนเธเธฃเธนเธเนเธเธเธเธตเน:
-๐“ เธชเธฃเธธเธเธชเธ–เธฒเธเธเธฒเธฃเธ“เน
-๐’ก Insight เธชเธณเธเธฑเธ
-๐ฏ เนเธญเธเธฒเธชเธชเธณเธซเธฃเธฑเธเธเธฒเธเธเธฑเธ•เธขเน
-โก เธชเธดเนเธเธ—เธตเนเธเธงเธฃเธ—เธณเธ—เธฑเธเธ—เธต
-
-เธ•เธญเธเธ เธฒเธฉเธฒเนเธ—เธข เธเธฃเธฐเธเธฑเธ เน€เธเนเธฒเนเธเธเนเธฒเธข`,
+    system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMessage }]
   });
-
-  const reply = response.content[0].text;
+  const reply = resp.content[0].text;
   const chunks = reply.match(/[\s\S]{1,4000}/g) || [reply];
-  for (const chunk of chunks) {
-    await sendLine(userId, chunk);
-  }
+  for (const chunk of chunks) await sendLine(userId, chunk);
 }
 
-app.get('/', (req, res) => res.send('LINE Bot AI is running!'));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Bot running on port ' + PORT));
+app.get('/', (_, res) => res.send('LINE Bot AI is running!'));
+app.listen(process.env.PORT || 3000, () => console.log('Bot started'));
