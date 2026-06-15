@@ -62,15 +62,20 @@ async function handleMessage(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text;
   await sendLine(userId, '\u{1F50D} กำลังวิเคราะห์... รอสักครู่ครับ');
-  const resp = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }]
-  });
-  const reply = resp.content[0].text;
-  const chunks = reply.match(/[\s\S]{1,4000}/g) || [reply];
-  for (const chunk of chunks) await sendLine(userId, chunk);
+  try {
+    const resp = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+    const reply = resp.content[0].text;
+    const chunks = reply.match(/[\s\S]{1,4000}/g) || [reply];
+    for (const chunk of chunks) await sendLine(userId, chunk);
+  } catch (err) {
+    console.error('Claude error:', err.message);
+    await sendLine(userId, 'ERROR: ' + err.message);
+  }
 }
 
 app.get('/', (_, res) => res.send('LINE Bot AI is running!'));
