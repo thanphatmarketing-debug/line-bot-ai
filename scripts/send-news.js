@@ -36,21 +36,33 @@ function fetchURL(url) {
 
 function parseRSS(xml) {
   const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/g;
   let match;
   while ((match = itemRegex.exec(xml)) !== null && items.length < 3) {
-    const titleMatch = match[1].match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/);
-    const linkMatch = match[1].match(/<link>(.*?)<\/link>/);
-    const descMatch = match[1].match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+    const block = match[1];
+    // title: plain or CDATA
+    const titleMatch = block.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+    // link: may have CDATA or plain
+    const linkMatch = block.match(/<link>([^<]+)<\/link>/) || block.match(/<link><!\[CDATA\[([\s\S]*?)\]\]><\/link>/);
+    // description
+    const descMatch = block.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
     if (titleMatch && linkMatch) {
       items.push({
-        title: titleMatch[1].trim(),
+        title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
         url: linkMatch[1].trim(),
         desc: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').trim().slice(0, 300) : ''
       });
     }
   }
   return items;
+}
+
+function fallbackTechItem() {
+  return {
+    title: 'ข่าวเทคโนโลยี AI ล่าสุด 2026',
+    url: 'https://www.beartai.com/',
+    desc: 'ติดตามข่าวเทคโนโลยีและ AI ล่าสุดจาก Beartai'
+  };
 }
 
 function sendLine(userId, text) {
@@ -93,7 +105,8 @@ async function main() {
   // Tech news from Beartai RSS
   const rssXml = await fetchURL('https://www.beartai.com/feed');
   const rssItems = parseRSS(rssXml);
-  const top = rssItems[0];
+  console.log('RSS items found:', rssItems.length);
+  const top = rssItems.length > 0 ? rssItems[0] : fallbackTechItem();
 
   const techResp = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
